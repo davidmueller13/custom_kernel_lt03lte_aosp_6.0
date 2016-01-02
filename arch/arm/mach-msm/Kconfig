@@ -4377,3 +4377,11 @@ config MUIC_RESET_PIN_ENABLE
                 This request is from H/W team
 		In case of mUIC voltage drop, mUIC will be reset
 endif
+
+config MSM_HOTPLUG
+	bool "MSM hotplug driver"
+	depends on HOTPLUG_CPU
+	default n
+	help
+	  The MSM hotplug driver controls on-/offlining of additional cores based
+	  on current cpu load.
