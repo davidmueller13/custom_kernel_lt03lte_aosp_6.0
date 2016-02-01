@@ -1022,10 +1022,6 @@ static void mxt_report_input_data(struct mxt_data *data)
 			input_sync(data->input_dev);
 	}
 
-#if TSP_BOOSTER
-	mxt_set_dvfs_lock(data, count);
-#endif
-
 	data->finger_mask = 0;
 }
 
@@ -1166,9 +1162,6 @@ static void mxt_release_all_keys(struct mxt_data *data)
 #endif
 						dev_info(&data->client->dev,
 							"%s: [TSP_KEY] menu R!\n", __func__);
-#if MXT_TKEY_BOOSTER
-						mxt_tkey_set_dvfs_lock(data, !!KEY_RELEASE);
-#endif
 				}
 			}
 
@@ -1187,9 +1180,6 @@ static void mxt_release_all_keys(struct mxt_data *data)
 					input_report_key(data->input_dev, KEY_BACK, KEY_RELEASE);
 						dev_info(&data->client->dev,
 							"%s: [TSP_KEY] back R!\n", __func__);
-#if MXT_TKEY_BOOSTER
-						mxt_tkey_set_dvfs_lock(data, !!KEY_RELEASE);
-#endif
 			}
 		}
 	}
@@ -1282,9 +1272,6 @@ static void mxt_treat_T15_object(struct mxt_data *data,
 						}
 						data->ignore_back_key_by_menu = false;
 					}
-#if MXT_TKEY_BOOSTER
-						mxt_tkey_set_dvfs_lock(data, !!key_state);
-#endif
 				}
 			}
 
@@ -1322,9 +1309,6 @@ static void mxt_treat_T15_object(struct mxt_data *data,
 						}
 						data->ignore_menu_key_by_back = false;
 					}
-#if MXT_TKEY_BOOSTER
-						mxt_tkey_set_dvfs_lock(data, !!key_state);
-#endif
 				}
 			}
 
@@ -2292,9 +2276,6 @@ static int mxt_stop(struct mxt_data *data)
 #if ENABLE_TOUCH_KEY
 	mxt_release_all_keys(data);
 #endif
-#if TSP_BOOSTER
-	mxt_set_dvfs_lock(data, -1);
-#endif
 
 	data->mxt_enabled = false;
 
@@ -2437,12 +2418,6 @@ static int mxt_touch_finish_init(struct mxt_data *data)
 		goto err_req_irq;
 	}
 
-#if TSP_BOOSTER
-	mxt_init_dvfs(data);
-#endif
-#if MXT_TKEY_BOOSTER
-	mxt_tkey_init_dvfs(data);
-#endif
 
 	dev_info(&client->dev,  "Mxt touch controller initialized\n");
 

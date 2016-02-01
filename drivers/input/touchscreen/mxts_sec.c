@@ -1569,18 +1569,6 @@ static void boost_level(void *device_data)
 	snprintf(buff, sizeof(buff), "OK");
 	fdata->cmd_state = CMD_STATUS_OK;
 
-	if (data->dvfs_boost_mode == DVFS_STAGE_NONE) {
-			retval = set_freq_limit(DVFS_TOUCH_ID, -1);
-			if (retval < 0) {
-				dev_err(&client->dev,
-					"%s: booster stop failed(%d).\n",
-					__func__, retval);
-				snprintf(buff, sizeof(buff), "NG");
-				fdata->cmd_state = CMD_STATUS_FAIL;
-
-				data->dvfs_lock_status = false;
-			}
-	}
 
 	set_cmd_result(fdata, buff, strnlen(buff, sizeof(buff)));
 
@@ -2072,26 +2060,7 @@ static ssize_t boost_level_store(struct device *dev,
 			"%s: tkey_dvfs_boost_mode = %d\n",
 			__func__, data->tkey_dvfs_boost_mode);
 
-	if (data->tkey_dvfs_boost_mode == DVFS_STAGE_DUAL) {
-		data->tkey_dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
-		dev_info(&data->client->dev,
-			"%s: boost_mode DUAL, tkey_dvfs_freq = %d\n",
-			__func__, data->tkey_dvfs_freq);
-	} else if (data->tkey_dvfs_boost_mode == DVFS_STAGE_SINGLE) {
-		data->tkey_dvfs_freq = MIN_TOUCH_LIMIT;
-		dev_info(&data->client->dev,
-			"%s: boost_mode SINGLE, tkey_dvfs_freq = %d\n",
-			__func__, data->tkey_dvfs_freq);
-	} else if (data->tkey_dvfs_boost_mode == DVFS_STAGE_NONE) {
-		data->tkey_dvfs_freq = -1;
-		retval = set_freq_limit(DVFS_TOUCH_ID, -1);
-		if (retval < 0) {
-			dev_err(&data->client->dev,
-					"%s: booster stop failed(%d).\n",
-					__func__, retval);
-			data->tkey_dvfs_lock_status = false;
-		}
-	}
+	
 	return count;
 }
 #endif
@@ -2761,247 +2730,17 @@ static void  mxt_sysfs_remove(struct mxt_data *data)
 #endif
 }
 
-#if TSP_BOOSTER
-static void mxt_change_dvfs_lock(struct work_struct *work)
-{
-	struct mxt_data *data =
-		container_of(work,
-			struct mxt_data, work_dvfs_chg.work);
-	int ret = 0;
 
-	mutex_lock(&data->dvfs_lock);
 
-	if (data->dvfs_boost_mode == DVFS_STAGE_DUAL) {
-		if (!data->mxt_enabled) {
-			dev_info(&data->client->dev,
-				"%s: mxt is disabled.\n", __func__);
-			return;
-		} else {
-		ret = set_freq_limit(DVFS_TOUCH_ID,
-				MIN_TOUCH_LIMIT_SECOND);
-		data->dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
-		}
-	} else if (data->dvfs_boost_mode == DVFS_STAGE_NINTH) {
-		if (!data->mxt_enabled) {
-			dev_info(&data->client->dev,
-				"%s: mxt is disabled.\n", __func__);
-			return;
-		} else {
-			ret = set_freq_limit(DVFS_TOUCH_ID,
-					MIN_TOUCH_LIMIT);
-			data->dvfs_freq = MIN_TOUCH_LIMIT;
-		}
-	} else if (data->dvfs_boost_mode == DVFS_STAGE_SINGLE ||
-			data->dvfs_boost_mode == DVFS_STAGE_TRIPLE) {
-		ret = set_freq_limit(DVFS_TOUCH_ID, -1);
-		data->dvfs_freq = -1;
-	}
 
-	if (ret < 0)
-		dev_err(&data->client->dev,
-			"%s: booster change failed(%d).\n",
-			__func__, ret);
-	mutex_unlock(&data->dvfs_lock);
 
-}
 
-static void mxt_set_dvfs_off(struct work_struct *work)
-{
-	struct mxt_data *data =
-		container_of(work,
-			struct mxt_data, work_dvfs_off.work);
-	int ret;
 
-	if (!data->mxt_enabled) {
-		dev_info(&data->client->dev,
-				"%s: mxt is disabled.\n", __func__);
-	} else {
-		mutex_lock(&data->dvfs_lock);
 
-		ret = set_freq_limit(DVFS_TOUCH_ID, -1);
-		data->dvfs_freq = -1;
 
-		if (ret < 0)
-			dev_err(&data->client->dev,
-				"%s: booster stop failed(%d).\n",
-				__func__, ret);
-		data->dvfs_lock_status = false;
 
-		mutex_unlock(&data->dvfs_lock);
-	}
-}
 
-void mxt_set_dvfs_lock(struct mxt_data *data, int on)
-{
-	int ret = 0;
 
-	if (data->dvfs_boost_mode == DVFS_STAGE_NONE) {
-		dev_info(&data->client->dev,
-				"%s: DVFS stage is none(%d)\n",
-				__func__, data->dvfs_boost_mode);
-		return;
-	}
 
-	mutex_lock(&data->dvfs_lock);
-	if (on == 0) {
-		if (data->dvfs_lock_status) {
-			if (data->dvfs_boost_mode == DVFS_STAGE_NINTH)
-			schedule_delayed_work(&data->work_dvfs_off,
-				msecs_to_jiffies(TOUCH_BOOSTER_HIGH_OFF_TIME));
-			else
-			schedule_delayed_work(&data->work_dvfs_off,
-				msecs_to_jiffies(TOUCH_BOOSTER_OFF_TIME));
-		}
-	} else if (on > 0) {
-		cancel_delayed_work(&data->work_dvfs_off);
 
-		if ((!data->dvfs_lock_status) || (data->dvfs_old_stauts < on)) {
-			cancel_delayed_work(&data->work_dvfs_chg);
 
-			if ((data->dvfs_freq != MIN_TOUCH_LIMIT) &&
-				(data->dvfs_boost_mode != DVFS_STAGE_NINTH)) {
-				if (data->dvfs_boost_mode == DVFS_STAGE_TRIPLE)
-					ret = set_freq_limit(DVFS_TOUCH_ID,
-						MIN_TOUCH_LIMIT_SECOND);
-				else
-					ret = set_freq_limit(DVFS_TOUCH_ID,
-							MIN_TOUCH_LIMIT);
-				data->dvfs_freq = MIN_TOUCH_LIMIT;
-				if (ret < 0)
-					dev_err(&data->client->dev,
-						"%s: cpu first lock failed(%d)\n",
-						__func__, ret);
-			}
-			else if ((data->dvfs_freq != MIN_TOUCH_LIMIT) &&
-				(data->dvfs_boost_mode == DVFS_STAGE_NINTH)) {
-				ret = set_freq_limit(DVFS_TOUCH_ID,
-							MIN_TOUCH_HIGH_LIMIT);
-				data->dvfs_freq = MIN_TOUCH_HIGH_LIMIT;
-
-				if (ret < 0)
-					dev_err(&data->client->dev,
-						"%s: cpu first lock failed(%d)\n",
-						__func__, ret);
-			}
-
-			if (data->dvfs_boost_mode == DVFS_STAGE_NINTH)
-			schedule_delayed_work(&data->work_dvfs_chg,
-					msecs_to_jiffies(TOUCH_BOOSTER_HIGH_CHG_TIME));
-			else
-			schedule_delayed_work(&data->work_dvfs_chg,
-				msecs_to_jiffies(TOUCH_BOOSTER_CHG_TIME));
-
-			data->dvfs_lock_status = true;
-		}
-	} else if (on < 0) {
-		if (data->dvfs_lock_status) {
-			cancel_delayed_work(&data->work_dvfs_off);
-			cancel_delayed_work(&data->work_dvfs_chg);
-			schedule_work(&data->work_dvfs_off.work);
-		}
-	}
-	data->dvfs_old_stauts = on;
-	mutex_unlock(&data->dvfs_lock);
-}
-
-void mxt_init_dvfs(struct mxt_data *data)
-{
-	mutex_init(&data->dvfs_lock);
-
-	data->dvfs_boost_mode = DVFS_STAGE_DUAL;
-
-	INIT_DELAYED_WORK(&data->work_dvfs_off, mxt_set_dvfs_off);
-	INIT_DELAYED_WORK(&data->work_dvfs_chg, mxt_change_dvfs_lock);
-
-	data->dvfs_lock_status = false;
-}
-#endif
-#if MXT_TKEY_BOOSTER
-static void mxt_tkey_change_dvfs_lock(struct work_struct *work)
-{
-	struct mxt_data *data =
-		container_of(work,
-			struct mxt_data, work_tkey_dvfs_chg.work);
-	int retval = 0;
-	mutex_lock(&data->tkey_dvfs_lock);
-
-	retval = set_freq_limit(DVFS_TOUCH_ID, data->tkey_dvfs_freq);
-	if (retval < 0)
-		dev_info(&data->client->dev,
-			"%s: booster change failed(%d).\n",
-			__func__, retval);
-	data->tkey_dvfs_lock_status = false;
-	mutex_unlock(&data->tkey_dvfs_lock);
-}
-
-static void mxt_tkey_set_dvfs_off(struct work_struct *work)
-{
-	struct mxt_data *data =
-		container_of(work,
-			struct mxt_data, work_tkey_dvfs_off.work);
-	int retval;
-
-	mutex_lock(&data->tkey_dvfs_lock);
-	retval = set_freq_limit(DVFS_TOUCH_ID, -1);
-	if (retval < 0)
-		dev_info(&data->client->dev,
-			"%s: booster stop failed(%d).\n",
-			__func__, retval);
-
-	data->tkey_dvfs_lock_status = true;
-	mutex_unlock(&data->tkey_dvfs_lock);
-}
-
-void mxt_tkey_set_dvfs_lock(struct mxt_data *data, int on)
-{
-	int ret = 0;
-
-	if (data->tkey_dvfs_boost_mode == DVFS_STAGE_NONE) {
-		dev_dbg(&data->client->dev,
-				"%s: DVFS stage is none(%d)\n",
-				__func__, data->tkey_dvfs_boost_mode);
-		return;
-	}
-
-	mutex_lock(&data->tkey_dvfs_lock);
-	if (on == 0) {
-		cancel_delayed_work(&data->work_tkey_dvfs_chg);
-
-		if (data->tkey_dvfs_lock_status) {
-			ret = set_freq_limit(DVFS_TOUCH_ID, data->tkey_dvfs_freq);
-					if (ret < 0)
-						dev_info(&data->client->dev,
-					"%s: cpu first lock failed(%d)\n", __func__, ret);
-			data->tkey_dvfs_lock_status = false;
-		}
-
-		schedule_delayed_work(&data->work_tkey_dvfs_off,
-			msecs_to_jiffies(TOUCH_BOOSTER_OFF_TIME));
-
-	} else if (on == 1) {
-		cancel_delayed_work(&data->work_tkey_dvfs_off);
-				schedule_delayed_work(&data->work_tkey_dvfs_chg,
-				msecs_to_jiffies(TOUCH_BOOSTER_OFF_TIME));
-
-	} else if (on == 2) {
-		if (data->tkey_dvfs_lock_status) {
-			cancel_delayed_work(&data->work_tkey_dvfs_off);
-			cancel_delayed_work(&data->work_tkey_dvfs_chg);
-			schedule_work(&data->work_tkey_dvfs_off.work);
-		}
-	}
-	mutex_unlock(&data->tkey_dvfs_lock);
-}
-
-void mxt_tkey_init_dvfs(struct mxt_data *data)
-{
-	mutex_init(&data->tkey_dvfs_lock);
-	data->tkey_dvfs_boost_mode = DVFS_STAGE_DUAL;
-	data->tkey_dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
-
-	INIT_DELAYED_WORK(&data->work_tkey_dvfs_off, mxt_tkey_set_dvfs_off);
-	INIT_DELAYED_WORK(&data->work_tkey_dvfs_chg, mxt_tkey_change_dvfs_lock);
-
-	data->tkey_dvfs_lock_status = true;
-}
-#endif
